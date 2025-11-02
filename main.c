@@ -320,7 +320,7 @@ void StartTask1(void *argument)
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //Set PA5 low
 
 	  HAL_UART_Transmit(&huart2, tx_buffer_Task1, 17, 10); //UART message for debugging
-	  osDelay(5000);
+	  osDelay(3000);
   }
   /* USER CODE END 5 */
 }
@@ -334,7 +334,7 @@ void StartTask1(void *argument)
 /* USER CODE END Header_StartTask2 */
 void StartTask2(void *argument)
 {
-	osDelay(5000);
+	osDelay(1000);
   /* USER CODE BEGIN StartTask2 */
   /* Infinite loop */
   for(;;)
@@ -344,7 +344,7 @@ void StartTask2(void *argument)
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //Set PA5 low
 
 	  HAL_UART_Transmit(&huart2, tx_buffer_Task2, 17, 10); //UART message for debugging
-	  osDelay(5000);
+	  osDelay(3000);
   }
   /* USER CODE END StartTask2 */
 }
@@ -358,7 +358,7 @@ void StartTask2(void *argument)
 /* USER CODE END Header_StartTask3 */
 void StartTask3(void *argument)
 {
-	osDelay(10000);
+	osDelay(2000);
   /* USER CODE BEGIN StartTask3 */
   /* Infinite loop */
   for(;;)
@@ -367,7 +367,7 @@ void StartTask3(void *argument)
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET); //Set PC4 low
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //Set PA5 high
 	  HAL_UART_Transmit(&huart2, tx_buffer_Task2, 17, 10); //UART message for debugging
-	  osDelay(5000);
+	  osDelay(3000);
   }
   /* USER CODE END StartTask3 */
 }
