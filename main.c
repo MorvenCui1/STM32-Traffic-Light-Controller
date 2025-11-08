@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,43 +42,36 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
-uint8_t tx_buffer_Task1[17] = "Task 1 executed\n\r";
-uint8_t tx_buffer_Task2[17] = "Task 2 executed\n\r";
-uint8_t tx_buffer_Task3[17] = "Task 3 executed\n\r";
-/* USER CODE END PV */
-
-/* Definitions for Task1 */
-osThreadId_t Task1Handle;
-const osThreadAttr_t Task1_attributes = {
-  .name = "Task1",
+/* Definitions for blink01 */
+osThreadId_t blink01Handle;
+const osThreadAttr_t blink01_attributes = {
+  .name = "blink01",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for Task2 */
-osThreadId_t Task2Handle;
-const osThreadAttr_t Task2_attributes = {
-  .name = "Task2",
+/* Definitions for blink02 */
+osThreadId_t blink02Handle;
+const osThreadAttr_t blink02_attributes = {
+  .name = "blink02",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
-/* Definitions for Task3 */
-osThreadId_t Task3Handle;
-const osThreadAttr_t Task3_attributes = {
-  .name = "Task3",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
+/* USER CODE BEGIN PV */
+static const uint8_t TMP102_ADDR = 0x48 << 1; //Shift slave address over by 1 to make room for value bit
+static const uint8_t REG_TEMP = 0x00; //Register address
+/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-void StartTask1(void *argument);
-void StartTask2(void *argument);
-void StartTask3(void *argument);
+static void MX_I2C1_Init(void);
+void StartBlink01(void *argument);
+void StartBlink02(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -118,6 +112,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -142,14 +137,11 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of Task1 */
-  Task1Handle = osThreadNew(StartTask1, NULL, &Task1_attributes);
+  /* creation of blink01 */
+  blink01Handle = osThreadNew(StartBlink01, NULL, &blink01_attributes);
 
-  /* creation of Task2 */
-  Task2Handle = osThreadNew(StartTask2, NULL, &Task2_attributes);
-
-  /* creation of Task3 */
-  Task3Handle = osThreadNew(StartTask3, NULL, &Task3_attributes);
+  /* creation of blink02 */
+  blink02Handle = osThreadNew(StartBlink02, NULL, &blink02_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -186,8 +178,10 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -195,7 +189,13 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 1;
+  RCC_OscInitStruct.PLL.PLLN = 10;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -205,15 +205,63 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x10D19CE4;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -239,6 +287,8 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.Mode = UART_MODE_TX_RX;
   huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart2) != HAL_OK)
   {
     Error_Handler();
@@ -262,35 +312,26 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_4, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PA0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  /*Configure GPIO pins : LD2_Pin PA6 */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PC4 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -301,75 +342,144 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartTask1 */
+/* USER CODE BEGIN Header_StartBlink01 */
 /**
-  * @brief  Function implementing the Task1 thread.
+  * @brief  Function implementing the blink01 thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartTask1 */
-void StartTask1(void *argument)
+/* USER CODE END Header_StartBlink01 */
+void StartBlink01(void *argument)
 {
-	osDelay(0);
   /* USER CODE BEGIN 5 */
+	HAL_StatusTypeDef ret;
+	uint8_t buf[16];
+	int16_t val;
+	float temp_c;
   /* Infinite loop */
   for(;;)
   {
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET); //Set PA0 high
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET); //Set PC4 low
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //Set PA5 low
+	  // Tell TMP102 that we want to read from the temperature register
+	  buf[0] = REG_TEMP;
+	  ret = HAL_I2C_Master_Transmit(&hi2c1, TMP102_ADDR, buf, 1, HAL_MAX_DELAY);
+	  if ( ret != HAL_OK ) {
+	      strcpy((char*)buf, "Error Tx\r\n");
+	  } else {
+		  // Read 2 bytes from the temperature register
+		  ret = HAL_I2C_Master_Receive(&hi2c1, TMP102_ADDR, buf, 2, HAL_MAX_DELAY);
+		  if ( ret != HAL_OK ) {
+			  strcpy((char*)buf, "Error Rx\r\n");
+		  } else {
+			  //Combine the bytes
+			  val = ((int16_t)buf[0] << 4) | (buf[1] >> 4);
 
-	  HAL_UART_Transmit(&huart2, tx_buffer_Task1, 17, 10); //UART message for debugging
-	  osDelay(3000);
+			  // Convert to 2's complement, since temperature can be negative
+			  if ( val > 0x7FF ) {
+				  val |= 0xF000;
+			  }
+
+			  // Convert to float temperature value (Celsius)
+			  temp_c = val * 0.0625;
+
+			  // Convert temperature to decimal format
+			  temp_c *= 100;
+			  sprintf((char*)buf,
+					  "%u.%u C\r\n",
+					  ((unsigned int)temp_c / 100),
+					  ((unsigned int)temp_c % 100));
+			  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+		  }
+	  }
+
+	  if (temp_c < 30) {
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+		  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+
+		  strcpy((char*)buf, "Green\n\r");
+		  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+	  } else {
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+		  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+
+		  strcpy((char*)buf, "No Output\n\r");
+		  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+	  }
+
+	  osDelay(500);
   }
+
+  osThreadTerminate(NULL);
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_StartTask2 */
+/* USER CODE BEGIN Header_StartBlink02 */
 /**
-* @brief Function implementing the Task2 thread.
+* @brief Function implementing the blink02 thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask2 */
-void StartTask2(void *argument)
+/* USER CODE END Header_StartBlink02 */
+void StartBlink02(void *argument)
 {
-	osDelay(1000);
-  /* USER CODE BEGIN StartTask2 */
-  /* Infinite loop */
-  for(;;)
-  {
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET); //Set PA0 low
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET); //Set PC4 high
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //Set PA5 low
+	/* USER CODE BEGIN 5 */
+	HAL_StatusTypeDef ret;
+	uint8_t buf[16];
+	int16_t val;
+	float temp_c;
+	/* Infinite loop */
+	for(;;)
+	{
+		// Tell TMP102 that we want to read from the temperature register
+		buf[0] = REG_TEMP;
+		ret = HAL_I2C_Master_Transmit(&hi2c1, TMP102_ADDR, buf, 1, HAL_MAX_DELAY);
+		if ( ret != HAL_OK ) {
+			strcpy((char*)buf, "Error Tx\r\n");
+		} else {
+			// Read 2 bytes from the temperature register
+			ret = HAL_I2C_Master_Receive(&hi2c1, TMP102_ADDR, buf, 2, HAL_MAX_DELAY);
+			if ( ret != HAL_OK ) {
+				strcpy((char*)buf, "Error Rx\r\n");
+			} else {
+				//Combine the bytes
+				val = ((int16_t)buf[0] << 4) | (buf[1] >> 4);
 
-	  HAL_UART_Transmit(&huart2, tx_buffer_Task2, 17, 10); //UART message for debugging
-	  osDelay(3000);
-  }
-  /* USER CODE END StartTask2 */
-}
+				// Convert to 2's complement, since temperature can be negative
+				if ( val > 0x7FF ) {
+					val |= 0xF000;
+				}
 
-/* USER CODE BEGIN Header_StartTask3 */
-/**
-* @brief Function implementing the Task3 thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartTask3 */
-void StartTask3(void *argument)
-{
-	osDelay(2000);
-  /* USER CODE BEGIN StartTask3 */
-  /* Infinite loop */
-  for(;;)
-  {
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET); //Set PA0 low
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET); //Set PC4 low
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //Set PA5 high
-	  HAL_UART_Transmit(&huart2, tx_buffer_Task2, 17, 10); //UART message for debugging
-	  osDelay(3000);
-  }
-  /* USER CODE END StartTask3 */
+				// Convert to float temperature value (Celsius)
+				temp_c = val * 0.0625;
+
+				// Convert temperature to decimal format
+				temp_c *= 100;
+				sprintf((char*)buf,
+						"%u.%u C\r\n",
+						((unsigned int)temp_c / 100),
+						((unsigned int)temp_c % 100));
+				HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+			}
+		}
+
+		if (temp_c < 30) {
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_SET);
+
+			strcpy((char*)buf, "Red\n\r");
+			HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+		} else {
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+
+			strcpy((char*)buf, "No Output\n\r");
+			HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
+		}
+
+		osDelay(600);
+	}
+
+	osThreadTerminate(NULL);
+  /* USER CODE END StartBlink02 */
 }
 
 /**
