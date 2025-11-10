@@ -42,8 +42,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
-
 UART_HandleTypeDef huart2;
 
 /* Definitions for blink01 */
@@ -61,15 +59,12 @@ const osThreadAttr_t blink02_attributes = {
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
-static const uint8_t TMP102_ADDR = 0x48 << 1; //Shift slave address over by 1 to make room for value bit
-static const uint8_t REG_TEMP = 0x00; //Register address
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_I2C1_Init(void);
 void StartBlink01(void *argument);
 void StartBlink02(void *argument);
 
@@ -112,7 +107,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -217,54 +211,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x10D19CE4;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
-}
-
-/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -352,60 +298,17 @@ static void MX_GPIO_Init(void)
 void StartBlink01(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	HAL_StatusTypeDef ret;
 	uint8_t buf[16];
-	int16_t val;
-	float temp_c;
   /* Infinite loop */
   for(;;)
   {
-	  // Tell TMP102 that we want to read from the temperature register
-	  buf[0] = REG_TEMP;
-	  ret = HAL_I2C_Master_Transmit(&hi2c1, TMP102_ADDR, buf, 1, HAL_MAX_DELAY);
-	  if ( ret != HAL_OK ) {
-	      strcpy((char*)buf, "Error Tx\r\n");
-	  } else {
-		  // Read 2 bytes from the temperature register
-		  ret = HAL_I2C_Master_Receive(&hi2c1, TMP102_ADDR, buf, 2, HAL_MAX_DELAY);
-		  if ( ret != HAL_OK ) {
-			  strcpy((char*)buf, "Error Rx\r\n");
-		  } else {
-			  //Combine the bytes
-			  val = ((int16_t)buf[0] << 4) | (buf[1] >> 4);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
 
-			  // Convert to 2's complement, since temperature can be negative
-			  if ( val > 0x7FF ) {
-				  val |= 0xF000;
-			  }
+	strcpy((char*)buf, "Green\n\r");
+	HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 500);
 
-			  // Convert to float temperature value (Celsius)
-			  temp_c = val * 0.0625;
-
-			  // Convert temperature to decimal format
-			  temp_c *= 100;
-			  sprintf((char*)buf,
-					  "%u.%u C\r\n",
-					  ((unsigned int)temp_c / 100),
-					  ((unsigned int)temp_c % 100));
-			  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-		  }
-	  }
-
-	  if (temp_c < 30) {
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-		  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
-
-		  strcpy((char*)buf, "Green\n\r");
-		  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-	  } else {
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-		  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
-
-		  strcpy((char*)buf, "No Output\n\r");
-		  HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-	  }
-
-	  osDelay(500);
+	osDelay(2000);
   }
 
   osThreadTerminate(NULL);
@@ -421,65 +324,23 @@ void StartBlink01(void *argument)
 /* USER CODE END Header_StartBlink02 */
 void StartBlink02(void *argument)
 {
-	/* USER CODE BEGIN 5 */
-	HAL_StatusTypeDef ret;
-	uint8_t buf[16];
-	int16_t val;
-	float temp_c;
-	/* Infinite loop */
-	for(;;)
-	{
-		// Tell TMP102 that we want to read from the temperature register
-		buf[0] = REG_TEMP;
-		ret = HAL_I2C_Master_Transmit(&hi2c1, TMP102_ADDR, buf, 1, HAL_MAX_DELAY);
-		if ( ret != HAL_OK ) {
-			strcpy((char*)buf, "Error Tx\r\n");
-		} else {
-			// Read 2 bytes from the temperature register
-			ret = HAL_I2C_Master_Receive(&hi2c1, TMP102_ADDR, buf, 2, HAL_MAX_DELAY);
-			if ( ret != HAL_OK ) {
-				strcpy((char*)buf, "Error Rx\r\n");
-			} else {
-				//Combine the bytes
-				val = ((int16_t)buf[0] << 4) | (buf[1] >> 4);
+	 /* USER CODE BEGIN 5 */
+		uint8_t buf[16];
+		osDelay(1000);
+	  /* Infinite loop */
+	  for(;;)
+	  {
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_SET);
 
-				// Convert to 2's complement, since temperature can be negative
-				if ( val > 0x7FF ) {
-					val |= 0xF000;
-				}
+		strcpy((char*)buf, "Red\n\r");
+		HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 500);
 
-				// Convert to float temperature value (Celsius)
-				temp_c = val * 0.0625;
+		osDelay(2000);
+	  }
 
-				// Convert temperature to decimal format
-				temp_c *= 100;
-				sprintf((char*)buf,
-						"%u.%u C\r\n",
-						((unsigned int)temp_c / 100),
-						((unsigned int)temp_c % 100));
-				HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-			}
-		}
-
-		if (temp_c < 30) {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-			HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_SET);
-
-			strcpy((char*)buf, "Red\n\r");
-			HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-		} else {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-			HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
-
-			strcpy((char*)buf, "No Output\n\r");
-			HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 1000);
-		}
-
-		osDelay(600);
-	}
-
-	osThreadTerminate(NULL);
-  /* USER CODE END StartBlink02 */
+	  osThreadTerminate(NULL);
+	  /* USER CODE END 5 */
 }
 
 /**
