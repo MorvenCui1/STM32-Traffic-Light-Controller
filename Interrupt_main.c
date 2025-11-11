@@ -43,14 +43,16 @@
 TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
-
+void DMATransferComplete(DMA_HandleTypeDef *hdma);
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
@@ -91,6 +93,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
@@ -102,6 +105,11 @@ int main(void)
   //Set LED pins to default state
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+
+  //DMA Callback method
+  HAL_DMA_RegisterCallback(&hdma_usart2_tx, HAL_DMA_XFER_CPLT_CB_ID,
+                              &DMATransferComplete);
+
   //Start timer
   HAL_TIM_Base_Start_IT(&htim16);
 
@@ -235,6 +243,22 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -274,19 +298,28 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 // Callback: timer has rolled over
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	uint8_t buf[16];
-	strcpy((char*)buf, "Toggle\n\r");
+	char msg[] = "Toggle\n\r";
   // Check which version of the timer triggered this callback and toggle LED
   if (htim == &htim16 )
   {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
     HAL_GPIO_TogglePin(GPIOA, LD2_Pin|GPIO_PIN_6);
 
-    HAL_UART_Transmit(&huart2, buf, strlen((char*)buf), 500); //Debug message
+    //Transmit debug message using DMA
+    huart2.Instance->CR3 |= USART_CR3_DMAT;
+    HAL_DMA_Start_IT(&hdma_usart2_tx, (uint32_t)msg,
+    				(uint32_t)&huart2.Instance->TDR, strlen(msg));
   }
+}
+
+void DMATransferComplete(DMA_HandleTypeDef *hdma) {
+
+  // Disable UART DMA mode
+  huart2.Instance->CR3 &= ~USART_CR3_DMAT;
 }
 /* USER CODE END 4 */
 
